@@ -1,0 +1,483 @@
+{
+  "name": "AI Data Analytics Content Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1,4"
+            }
+          ]
+        }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "note": "Runs Monday and Thursday at 9 AM IST"
+    },
+    {
+      "parameters": {
+        "queries": [
+          "data analytics challenges 2026",
+          "AI implementation problems enterprises",
+          "data governance best practices",
+          "data strategy mistakes",
+          "real-time analytics issues",
+          "data mesh architecture problems"
+        ]
+      },
+      "name": "Search Trending Topics",
+      "type": "n8n-nodes-base.serpApi",
+      "typeVersion": 1,
+      "position": [450, 300],
+      "credentials": {
+        "serpApiApi": {
+          "id": "1",
+          "name": "SerpApi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = [];\nconst currentDate = new Date().toISOString().split('T')[0];\n\nfor (const item of $input.all()) {\n  const organicResults = item.json.organic_results || [];\n  \n  organicResults.slice(0, 5).forEach(result => {\n    items.push({\n      json: {\n        date: currentDate,\n        topic: result.title,\n        url: result.link,\n        snippet: result.snippet,\n        search_query: item.json.search_parameters.q\n      }\n    });\n  });\n}\n\nreturn items;"
+      },
+      "name": "Extract & Format Topics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Topics",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $json.date }}",
+            "Topic": "={{ $json.topic }}",
+            "Source_URL": "={{ $json.url }}",
+            "Snippet": "={{ $json.snippet }}",
+            "Search_Query": "={{ $json.search_query }}"
+          }
+        },
+        "options": {}
+      },
+      "name": "Save to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [850, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "topic_for_article",
+              "name": "selected_topic",
+              "value": "={{ $json.topic }}",
+              "type": "string"
+            },
+            {
+              "id": "context",
+              "name": "context_snippet",
+              "value": "={{ $json.snippet }}",
+              "type": "string"
+            },
+            {
+              "id": "source",
+              "name": "source_url",
+              "value": "={{ $json.url }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Prepare for AI",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 3000
+        },
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "={{ $('AI Agent 1 Prompt').item.json.system_prompt }}"
+            },
+            {
+              "role": "user",
+              "content": "Topic: {{ $json.selected_topic }}\n\nContext: {{ $json.context_snippet }}\n\nSource: {{ $json.source_url }}"
+            }
+          ]
+        }
+      },
+      "name": "AI Agent 1 - Content Generator",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [1450, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "3",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "prompt",
+              "name": "system_prompt",
+              "value": "You are an expert data analytics and AI strategist with 15+ years of experience implementing enterprise solutions. Your role is to write authoritative, practitioner-focused articles for senior data leaders, analytics managers, and technical architects.\n\nYour writing must:\n- ADDRESS SPECIFIC, ACTIONABLE PROBLEMS: Focus on real implementation challenges, not generic concepts\n- DEMONSTRATE DEEP EXPERTISE: Include technical nuances, architecture decisions, tradeoffs, and lessons learned\n- PROVIDE TACTICAL FRAMEWORKS: Give readers mental models, decision trees, or evaluation criteria they can use immediately\n- AVOID SURFACE-LEVEL CONTENT: No listicles of obvious points, no generic \"importance of data quality\" content\n- USE CONCRETE EXAMPLES: Reference specific tools, patterns, architectures, or case scenarios (anonymized if needed)\n- SHOW CONTRARIAN INSIGHT: Challenge common assumptions when warranted; show what experienced practitioners know that beginners don't\n\nArticle Structure:\n1. HOOK (150 words): Start with a specific problem scenario or surprising insight that experienced practitioners will recognize\n2. PROBLEM DEPTH (300 words): Unpack why this is harder than it seems - the hidden complexities, common failure modes, or misunderstood dynamics\n3. FRAMEWORK/APPROACH (500 words): Present your methodology, architecture, or decision framework with specific implementation details\n4. PRACTICAL APPLICATION (400 words): Walk through a realistic scenario showing how to apply this, including edge cases\n5. KEY DECISIONS & TRADEOFFS (300 words): What choices must readers make? What are the implications of each path?\n6. IMPLEMENTATION NOTES (250 words): Technical considerations, gotchas, or integration points that matter in production\n\nTone: Authoritative but conversational. Write like you're advising a colleague over coffee, not presenting to executives.\n\nAvoid:\n- Generic introductions (\"In today's data-driven world...\")\n- Obvious statements (\"Data quality is important\")\n- Buzzword soup without substance\n- Lists of tool names without evaluation criteria\n- Content that could apply to any technology topic\n\nYour reader should finish thinking: \"This person has actually built this in production.\"\n\nWrite a 1,800-2,000 word article. Use Markdown formatting with ## for sections.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "AI Agent 1 Prompt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [1250, 200]
+    },
+    {
+      "parameters": {
+        "options": {
+          "temperature": 0.4,
+          "maxTokens": 2000
+        },
+        "modelId": {
+          "__rl": true,
+          "value": "claude-3-5-sonnet-20241022",
+          "mode": "list"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "={{ $('AI Agent 2 Prompt').item.json.system_prompt }}"
+            },
+            {
+              "role": "user",
+              "content": "{{ $('AI Agent 1 - Content Generator').item.json.choices[0].message.content }}"
+            }
+          ]
+        }
+      },
+      "name": "AI Agent 2 - Humanizer & Quality Check",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [1650, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "4",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "humanizer_prompt",
+              "name": "system_prompt",
+              "value": "You are a senior editorial advisor specializing in technical content. Your job is to evaluate and humanize AI-generated content to ensure it meets publication standards for thought leadership.\n\nEVALUATE THE ARTICLE ON THESE CRITERIA (Rate each 1-10):\n\n1. SPECIFICITY SCORE\n- Does it address a concrete problem vs generic topic?\n- Are examples specific and realistic?\n- Does it include technical details or just concepts?\n\n2. EXPERTISE SIGNAL\n- Would an experienced practitioner find this insightful?\n- Does it show battle-tested wisdom vs textbook knowledge?\n- Are there non-obvious insights or contrarian takes?\n\n3. ACTIONABILITY\n- Can readers apply this tomorrow?\n- Are frameworks/approaches clear and implementable?\n- Does it answer \"how\" not just \"what\"?\n\n4. AUTHENTICITY\n- Does it sound like a real person's experience?\n- Are there hedges, caveats, or acknowledged tradeoffs?\n- Does it avoid AI telltales (overly smooth transitions, generic language)?\n\n5. DIFFERENTIATION\n- Is this substantially different from the 100 other articles on this topic?\n- Does it challenge common narratives?\n- Would LinkedIn algorithm favor this as unique?\n\nHUMANIZATION CHECKLIST:\n□ Replace smooth AI transitions with punchier, more direct connections\n□ Add conversational asides (\"Here's what nobody tells you:\")\n□ Include realistic hesitations (\"This worked for us, but YMMV\")\n□ Remove overly balanced statements - pick a side when warranted\n□ Add specific numbers, timeframes, or scale indicators\n□ Replace abstract examples with named tools/patterns (even if generic)\n□ Add 2-3 subtle personality markers (dry humor, specific references)\n□ Ensure paragraphs vary in length (avoid AI's uniform paragraph syndrome)\n□ Add 1-2 sentence fragments or questions for rhythm\n□ Include at least one \"here's the thing though\" moment\n\nRED FLAGS TO FIX:\n- Starts with \"In the world of...\" or \"As organizations...\" → Rewrite opener\n- Uses \"landscape\", \"leverage\", \"robust\" excessively → Find concrete alternatives\n- Every paragraph is 4-5 sentences → Vary structure\n- No acknowledgment of downsides/tradeoffs → Add nuance\n- Could swap \"data\" for \"marketing\" and still work → Too generic, needs specificity\n\nOUTPUT FORMAT:\n```\nQUALITY ASSESSMENT:\n- Specificity: [score]/10 - [one sentence explanation]\n- Expertise Signal: [score]/10 - [one sentence explanation]\n- Actionability: [score]/10 - [one sentence explanation]\n- Authenticity: [score]/10 - [one sentence explanation]\n- Differentiation: [score]/10 - [one sentence explanation]\n\nOVERALL RATING: [average]/10\nPUBLISH DECISION: [PUBLISH / REVISE / REJECT]\n\nKEY ISSUES:\n[Bullet list of main problems if any]\n\nHUMANIZED VERSION:\n[Revised article with improvements, maintaining structure but enhancing authenticity]\n```\n\nBe tough but constructive. We're building a personal brand on expertise, not volume.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "AI Agent 2 Prompt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [1450, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse the quality check output\nconst response = $input.first().json.content[0].text;\n\n// Extract rating score\nconst ratingMatch = response.match(/OVERALL RATING:\\s*(\\d+)/i);\nconst rating = ratingMatch ? parseInt(ratingMatch[1]) : 0;\n\n// Extract decision\nconst decisionMatch = response.match(/PUBLISH DECISION:\\s*(\\w+)/i);\nconst decision = decisionMatch ? decisionMatch[1] : \"UNKNOWN\";\n\n// Extract humanized version\nconst humanizedMatch = response.match(/HUMANIZED VERSION:[\\s\\S]*?```?([\\s\\S]+)$/i);\nconst humanizedContent = humanizedMatch ? humanizedMatch[1].trim() : response;\n\n// Get original data\nconst originalTopic = $('Prepare for AI').first().json.selected_topic;\nconst currentDate = new Date().toISOString().split('T');\n\nreturn [{\n  json: {\n    date: currentDate,\n    topic: originalTopic,\n    rating: rating,\n    decision: decision,\n    quality_report: response,\n    final_article: humanizedContent,\n    word_count: humanizedContent.split(/\\s+/).length\n  }\n}];"
+      },
+      "name": "Parse Quality Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": 
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "publish_ready",
+              "leftValue": "={{ $json.rating }}",
+              "rightValue": 7,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            },
+            {
+              "id": "decision_publish",
+              "leftValue": "={{ $json.decision }}",
+              "rightValue": "PUBLISH",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Quality Gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": 
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "databaseId": {
+          "__rl": true,
+          "value": "YOUR_NOTION_DATABASE_ID",
+          "mode": "list"
+        },
+        "title": "={{ $json.topic }}",
+        "properties": {
+          "customProperty": [
+            {
+              "property": "Date",
+              "type": "date",
+              "date": "={{ $json.date }}"
+            },
+            {
+              "property": "Rating",
+              "type": "number",
+              "number": "={{ $json.rating }}"
+            },
+            {
+              "property": "Status",
+              "type": "select",
+              "select": "Published"
+            },
+            {
+              "property": "Word Count",
+              "type": "number",
+              "number": "={{ $json.word_count }}"
+            }
+          ]
+        },
+        "blockUi": {
+          "blockValues": [
+            {
+              "type": "richText",
+              "richText": "={{ $json.final_article }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Save to Notion",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2,
+      "position": ,
+      "credentials": {
+        "notionApi": {
+          "id": "5",
+          "name": "Notion account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Rejected",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $json.date }}",
+            "Topic": "={{ $json.topic }}",
+            "Rating": "={{ $json.rating }}",
+            "Decision": "={{ $json.decision }}",
+            "Reason": "={{ $json.quality_report }}"
+          }
+        },
+        "options": {}
+      },
+      "name": "Log Rejected Content",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": ,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Search Trending Topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Trending Topics": {
+      "main": [
+        [
+          {
+            "node": "Extract & Format Topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract & Format Topics": {
+      "main": [
+        [
+          {
+            "node": "Save to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Prepare for AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare for AI": {
+      "main": [
+        [
+          {
+            "node": "AI Agent 1 - Content Generator",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AI Agent 1 Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent 1 - Content Generator": {
+      "main": [
+        [
+          {
+            "node": "AI Agent 2 - Humanizer & Quality Check",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AI Agent 2 Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent 2 - Humanizer & Quality Check": {
+      "main": [
+        [
+          {
+            "node": "Parse Quality Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Quality Results": {
+      "main": [
+        [
+          {
+            "node": "Quality Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quality Gate": {
+      "main": [
+        [
+          {
+            "node": "Save to Notion",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Rejected Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}
